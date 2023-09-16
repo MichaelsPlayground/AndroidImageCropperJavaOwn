@@ -1,0 +1,158 @@
+package de.androidcrypto.androidimagecropperjavaown;
+
+import android.net.Uri;
+import android.os.Bundle;
+import android.os.Environment;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.Toast;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.content.FileProvider;
+import androidx.fragment.app.Fragment;
+import com.canhub.cropper.CropImage;
+import com.canhub.cropper.CropImageContract;
+import com.canhub.cropper.CropImageContractOptions;
+import com.canhub.cropper.CropImageOptions;
+import timber.log.Timber;
+import java.io.File;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import de.androidcrypto.androidimagecropperjavaown.databinding.FragmentCameraBinding;
+
+
+public class SampleCropFragment extends Fragment {
+
+    private FragmentCameraBinding binding;
+    private Uri outputUri;
+
+    private final ActivityResultLauncher<Uri> takePicture = registerForActivityResult(
+            new ActivityResultContracts.TakePicture(),
+            it -> {
+                if (it) {
+                    startCameraWithUri();
+                } else {
+                    showErrorMessage("Taking picture failed");
+                }
+            }
+    );
+
+    private final ActivityResultContracts<Bundle> cropImage = registerForActivityResult(
+            new CropImageContract(),
+            result -> {
+                if (result.isSuccessful()) {
+                    Timber.tag("AIC-Sample").i("Original bitmap: " + result.getOriginalBitmap());
+                    Timber.tag("AIC-Sample").i("Original uri: " + result.getOriginalUri());
+                    Timber.tag("AIC-Sample").i("Output bitmap: " + result.getBitmap());
+                    // todo Timber.tag("AIC-Sample").i("Output uri: " + result.getUriFilePath(requireContext()));
+                    handleCropImageResult(result.getUriContent().toString());
+                } else if (result instanceof CropImage.CancelledResult) {
+                    showErrorMessage("Cropping image was cancelled by the user");
+                } else {
+                    showErrorMessage("Cropping image failed");
+                }
+            }
+    );
+
+    private final ActivityResultContracts<Bundle> customCropImage = registerForActivityResult(
+            new CropImageContract(),
+            it -> {
+                if (!(it instanceof CropImage.CancelledResult)) {
+                    handleCropImageResult(it.getUriContent().toString());
+                }
+            }
+    );
+
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        binding = FragmentCameraBinding.inflate(inflater, container, false);
+        return binding.getRoot();
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        binding = null;
+    }
+
+    @Override
+    public void onViewCreated(View view, Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        binding.takePictureBeforeCallLibraryWithUri.setOnClickListener(v -> {
+            setupOutputUri();
+            takePicture.launch(outputUri);
+        });
+
+        binding.callLibraryWithoutUri.setOnClickListener(v -> startCameraWithoutUri(true, true));
+        binding.callLibraryWithoutUriCameraOnly.setOnClickListener(v -> startCameraWithoutUri(true, false));
+        binding.callLibraryWithoutUriGalleryOnly.setOnClickListener(v -> startCameraWithoutUri(false, true));
+    }
+
+    private void startCameraWithoutUri(boolean includeCamera, boolean includeGallery) {
+        customCropImage.launch(
+                new CropImageContractOptions(
+                        null,
+                        new CropImageOptions(
+                                includeCamera,
+                                includeGallery
+                        )
+                )
+        );
+    }
+
+    private void startCameraWithUri() {
+        cropImage.launch(
+                new CropImageContractOptions(
+                        outputUri,
+                        new CropImageOptions()
+                )
+        );
+    }
+
+    private void showErrorMessage(String message) {
+        Timber.tag("AIC-Sample").e("Camera error: " + message);
+        Toast.makeText(requireActivity(), "Crop failed: " + message, Toast.LENGTH_SHORT).show();
+    }
+
+    private void handleCropImageResult(String uri) {
+        SampleResultScreen.start(this, null, Uri.parse(uri.replace("file:", "")), null);
+    }
+
+    private void setupOutputUri() {
+        if (outputUri == null) {
+            if (getContext() != null) {
+                String authorities = getContext().getApplicationContext().getPackageName() + AUTHORITY_SUFFIX;
+                outputUri = FileProvider.getUriForFile(getContext(), authorities, createImageFile());
+            }
+        }
+    }
+
+    private File createImageFile() {
+        String timeStamp = new SimpleDateFormat(DATE_FORMAT, Locale.getDefault()).format(new Date());
+        File storageDir = getActivity().getExternalFilesDir(Environment.DIRECTORY_PICTURES);
+        File imageFile = null;
+
+        try {
+            imageFile = File.createTempFile(
+                    FILE_NAMING_PREFIX + timeStamp + FILE_NAMING_SUFFIX,
+                    FILE_FORMAT,
+                    storageDir
+            );
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return imageFile;
+    }
+
+    private static final String DATE_FORMAT = "yyyyMMdd_HHmmss";
+    private static final String FILE_NAMING_PREFIX = "JPEG_";
+    private static final String FILE_NAMING_SUFFIX = "_";
+    private static final String FILE_FORMAT = ".jpg";
+    private static final String AUTHORITY_SUFFIX = ".cropper.fileprovider";
+}
